@@ -1,0 +1,778 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>LifeStep — Biomechanics Dashboard</title>
+
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet" />
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+
+<style>
+:root {
+  --bg:        #0D1117;
+  --surface:   #1F2937;
+  --border:    #2E3D52;
+  --blue:      #1E5AA8;
+  --blue-glow: #2870CC;
+  --red:       #E63946;
+  --text:      #F5F7FA;
+  --muted:     #AFC3D6;
+  --faint:     #3A4E65;
+  --card-bg:   #161D27;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  width: 100%; height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'DM Mono', monospace;
+  font-size: 13px;
+  overflow-x: hidden;
+}
+
+/* HEADER */
+header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 32px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(13,17,23,0.95);
+  backdrop-filter: blur(12px);
+  position: sticky; top: 0; z-index: 100;
+}
+.logo { font-family: 'Syne', sans-serif; font-size: 20px; font-weight: 800; letter-spacing: -0.5px; }
+.logo span { color: var(--blue-glow); }
+.status-pill {
+  display: flex; align-items: center; gap: 7px;
+  background: rgba(30,90,168,0.12);
+  border: 1px solid var(--blue);
+  border-radius: 20px; padding: 5px 14px;
+  font-size: 11px; color: var(--muted); letter-spacing: 0.5px;
+}
+.status-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: #F59E0B; box-shadow: 0 0 6px #F59E0B;
+  animation: blink 1.5s infinite;
+  transition: background 0.4s, box-shadow 0.4s;
+}
+.status-dot.live { background: #22C55E; box-shadow: 0 0 6px #22C55E; }
+
+.mode-toggle { display:flex; gap:4px; background:var(--surface); border:1px solid var(--border); border-radius:20px; padding:3px; }
+.mode-btn { background:transparent; border:none; color:var(--muted); font-family:'DM Mono',monospace; font-size:10px; letter-spacing:1.5px; padding:4px 14px; border-radius:16px; cursor:pointer; transition:all 0.2s; }
+.mode-btn.active { background:var(--blue); color:#fff; }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
+.header-time { color: var(--muted); font-size: 11px; letter-spacing: 1px; }
+
+/* LAYOUT */
+.dashboard {
+  display: grid;
+  grid-template-columns: 1fr 420px;
+  gap: 1px;
+  background: var(--border);
+  min-height: calc(100vh - 53px);
+}
+.left-col { position: relative; z-index: 2; }
+.heatmap-panel { position: relative; z-index: 1; overflow: hidden; }
+.left-col { display: flex; flex-direction: column; gap: 1px; background: var(--border); }
+.panel { background: var(--card-bg); padding: 22px 24px; }
+.panel-label {
+  font-family: 'Syne', sans-serif;
+  font-size: 10px; font-weight: 700;
+  letter-spacing: 2.5px; text-transform: uppercase;
+  color: var(--muted); margin-bottom: 16px;
+  display: flex; align-items: center; gap: 8px;
+}
+.panel-label::after { content:''; flex:1; height:1px; background:var(--border); }
+.tag {
+  padding: 2px 8px; border-radius: 4px;
+  font-size: 9px; letter-spacing: 1px; text-transform: uppercase;
+  background: rgba(30,90,168,0.2); color: var(--blue-glow);
+  border: 1px solid rgba(30,90,168,0.4);
+}
+.tag.sim { background:rgba(245,158,11,0.15); color:#F59E0B; border-color:rgba(245,158,11,0.3); }
+
+/* 3D + IMU */
+.foot-row { display: flex; gap: 14px; height: 420px; }
+#three-wrap {
+  flex: 1;
+  border-radius: 10px; overflow: hidden;
+  background: radial-gradient(ellipse at 50% 40%, #1a2a40 0%, #080d14 100%);
+  border: 1px solid var(--border);
+}
+#three-wrap canvas { width:100%!important; height:100%!important; display:block; }
+
+.imu-col { width: 160px; display: flex; flex-direction: column; gap: 8px; }
+.imu-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 10px; padding: 12px 14px;
+}
+.imu-ttl { font-size:9px; letter-spacing:2px; text-transform:uppercase; color:var(--muted); margin-bottom:6px; }
+.imu-num { font-family:'Syne',sans-serif; font-size:22px; font-weight:700; line-height:1; margin-bottom:8px; }
+.imu-num em { font-size:11px; font-style:normal; color:var(--muted); font-weight:400; }
+.imu-track { position:relative; width:100%; height:5px; background:var(--faint); border-radius:3px; }
+.imu-fill { position:absolute; height:5px; border-radius:3px; top:0; transition:left 0.2s,width 0.2s; }
+.imu-center { position:absolute; left:50%; top:-3px; width:1px; height:11px; background:var(--border); }
+.load-card {
+  margin-top:auto;
+  background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:12px 14px;
+}
+
+/* PRESSURE HISTORY */
+.ph-panel { padding-top:16px; padding-bottom:18px; }
+#ph-canvas { width:100%; height:68px; border-radius:6px; display:block; }
+
+/* VITALS */
+.vitals-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; }
+.vital-card {
+  background:var(--surface); border:1px solid var(--border);
+  border-radius:12px; padding:16px; overflow:hidden; position:relative;
+}
+.vital-card::before {
+  content:''; position:absolute; top:0; left:0; right:0;
+  height:2px; border-radius:12px 12px 0 0;
+}
+.vc-red::before   { background:var(--red); }
+.vc-blue::before  { background:var(--blue-glow); }
+.vc-green::before { background:#22C55E; }
+.vc-amber::before { background:#F59E0B; }
+.vital-icon { font-size:16px; margin-bottom:6px; }
+.vital-lbl { font-size:9px; letter-spacing:2px; text-transform:uppercase; color:var(--muted); margin-bottom:3px; }
+.vital-num { font-family:'Syne',sans-serif; font-size:26px; font-weight:800; line-height:1; margin-bottom:2px; }
+.vn-red{color:var(--red)} .vn-blue{color:var(--blue-glow)} .vn-green{color:#22C55E} .vn-amber{color:#F59E0B}
+.vital-unit { font-size:10px; color:var(--muted); margin-bottom:8px; }
+.vital-spark { width:100%; height:30px; display:block; }
+
+/* HEATMAP PANEL */
+.heatmap-panel {
+  background:var(--card-bg); padding:22px 20px;
+  display:flex; flex-direction:column;
+  border-left:1px solid var(--border);
+  min-height:100%;
+}
+.hm-wrap { flex:1; display:flex; flex-direction:column; align-items:center; gap:10px; min-height:0; overflow:hidden; }
+.hm-stack {
+  position:relative; flex:1; width:100%; min-height:0;
+  overflow:visible; z-index:1;
+}
+
+#heat-canvas {
+  position:absolute; top:0; left:0; width:100%; height:100%;
+  z-index:1;
+}
+#foot-img {
+  position:absolute;
+  top:0; left:50%;
+  transform:translateX(-50%);
+  width:auto; height:100%;
+  max-width:none;
+  object-fit:contain; pointer-events:none;
+  z-index:2;
+}
+.hm-controls {
+  width:100%; display:flex; flex-direction:column; gap:4px;
+  background:var(--surface); border:1px solid var(--border);
+  border-radius:8px; padding:8px 12px;
+}
+.hmc-row {
+  display:flex; align-items:center; gap:6px; font-size:9px;
+  font-family:'DM Mono',monospace; color:var(--muted); letter-spacing:1px;
+}
+.hmc-row span:first-child { width:12px; flex-shrink:0; }
+.hmc-row span:last-child  { width:32px; text-align:right; flex-shrink:0; color:var(--text); }
+.hmc-row input[type=range] { flex:1; height:3px; accent-color:var(--blue-glow); cursor:pointer; }
+.sensor-legend {
+  display:flex; flex-direction:column; gap:6px; width:100%;
+  padding-top:10px; flex-shrink:0;
+}
+.srow { display:flex; align-items:center; gap:8px; }
+.sdot { width:9px; height:9px; border-radius:50%; flex-shrink:0; }
+.sname { color:var(--muted); flex:1; font-size:11px; }
+.sbar-wrap { width:70px; height:4px; background:var(--faint); border-radius:2px; overflow:hidden; }
+.sbar { height:100%; border-radius:2px; transition:width 0.35s ease; }
+.sval { width:30px; text-align:right; font-size:11px; }
+
+/* Animations */
+.fade { opacity:0; transform:translateY(14px); animation:fu 0.5s ease forwards; }
+.d1{animation-delay:.08s} .d2{animation-delay:.18s} .d3{animation-delay:.28s}
+@keyframes fu { to{opacity:1;transform:translateY(0);} }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">LIFE<span>STEP</span></div>
+  <div class="status-pill"><div class="status-dot" id="sdot"></div><span id="slbl">CONNECTING…</span></div>
+  <div class="mode-toggle">
+    <button class="mode-btn active" id="btn-live" onclick="setMode('live')">LIVE</button>
+    <button class="mode-btn" id="btn-demo" onclick="setMode('demo')">DEMO</button>
+  </div>
+  <div class="header-time" id="htime">--:--:--</div>
+</header>
+
+<div class="dashboard">
+
+  <div class="left-col">
+
+    <!-- 3D foot + IMU -->
+    <div class="panel fade d1">
+      <div class="panel-label">3D FOOT MODEL <span class="tag">LEFT FOOT</span></div>
+
+      <div class="foot-row">
+        <div id="three-wrap"></div>
+        <div class="right-col-3d">
+
+        <div class="imu-col">
+          <div class="imu-card">
+            <div class="imu-ttl">PITCH</div>
+            <div class="imu-num" id="ipitch">0.0 <em>°</em></div>
+            <div class="imu-track"><div class="imu-fill" id="bpitch"></div><div class="imu-center"></div></div>
+          </div>
+          <div class="imu-card">
+            <div class="imu-ttl">ROLL</div>
+            <div class="imu-num" id="iroll">0.0 <em>°</em></div>
+            <div class="imu-track"><div class="imu-fill" id="broll"></div><div class="imu-center"></div></div>
+          </div>
+          <div class="imu-card">
+            <div class="imu-ttl">YAW</div>
+            <div class="imu-num" id="iyaw">0.0 <em>°</em></div>
+            <div class="imu-track"><div class="imu-fill" id="byaw"></div><div class="imu-center"></div></div>
+          </div>
+          <div class="load-card">
+            <div class="imu-ttl">TOTAL LOAD</div>
+            <div class="imu-num" id="tload">0 <em>kPa</em></div>
+            <div style="font-size:9px;color:var(--faint);margin-top:3px;">5-sensor avg</div>
+          </div>
+        </div><!-- /imu-col -->
+        </div><!-- /right-col-3d -->
+      </div><!-- /foot-row -->
+    </div><!-- /3d panel -->
+
+    <!-- Pressure history -->
+    <div class="panel ph-panel fade d2">
+      <div class="panel-label">PRESSURE HISTORY</div>
+      <canvas id="ph-canvas"></canvas>
+    </div>
+
+    <!-- Vitals -->
+    <div class="panel fade d3">
+      <div class="panel-label">BIOMETRIC VITALS <span class="tag sim">SIMULATED</span></div>
+      <div class="vitals-grid">
+        <div class="vital-card vc-red">
+          <div class="vital-icon">♥</div>
+          <div class="vital-lbl">Heart Rate</div>
+          <div class="vital-num vn-red" id="vhr">72</div>
+          <div class="vital-unit">bpm</div>
+          <canvas class="vital-spark" id="sphr"></canvas>
+        </div>
+        <div class="vital-card vc-blue">
+          <div class="vital-icon">💧</div>
+          <div class="vital-lbl">SpO₂</div>
+          <div class="vital-num vn-blue" id="vspo2">98.0</div>
+          <div class="vital-unit">%</div>
+          <canvas class="vital-spark" id="spspo2"></canvas>
+        </div>
+        <div class="vital-card vc-green">
+          <div class="vital-icon">🌬</div>
+          <div class="vital-lbl">Resp. Rate</div>
+          <div class="vital-num vn-green" id="vrr">15</div>
+          <div class="vital-unit">br / min</div>
+          <canvas class="vital-spark" id="sprr"></canvas>
+        </div>
+        <div class="vital-card vc-amber">
+          <div class="vital-icon">🌡</div>
+          <div class="vital-lbl">Skin Temp</div>
+          <div class="vital-num vn-amber" id="vtemp">36.6</div>
+          <div class="vital-unit">°C</div>
+          <canvas class="vital-spark" id="sptemp"></canvas>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /left-col -->
+
+  <!-- HEATMAP -->
+  <div class="heatmap-panel fade d2">
+    <div class="panel-label">PLANTAR PRESSURE MAP</div>
+    <div class="hm-wrap">
+      <!-- Pressure rect sliders -->
+      <div class="hm-controls">
+        <div class="hmc-row"><span>X</span><input type="range" id="hmx" min="0" max="1" value="0.20" step="0.005"><span id="hmxv">0.20</span></div>
+        <div class="hmc-row"><span>Y</span><input type="range" id="hmy" min="0" max="1" value="0.05" step="0.005"><span id="hmyv">0.05</span></div>
+        <div class="hmc-row"><span>W</span><input type="range" id="hmw" min="0.01" max="1" value="0.48" step="0.005"><span id="hmwv">0.48</span></div>
+        <div class="hmc-row"><span>H</span><input type="range" id="hmh" min="0.01" max="1" value="0.60" step="0.005"><span id="hmhv">0.60</span></div>
+      </div>
+      <!-- Stack: heatmap canvas behind, foot PNG on top -->
+      <div class="hm-stack">
+        <canvas id="heat-canvas"></canvas>
+        <img id="foot-img" src="assets/foot.png" />
+      </div>
+      <!-- Sensor bars below foot -->
+      <div class="sensor-legend" id="slegend"></div>
+    </div>
+  </div>
+
+</div>
+
+<script src="config.js"></script>
+<script>
+const SENSORS = [
+  { key:'heel_left',  name:'Heel (Inner)', x:0.37, y:0.88, color:'#E63946' },
+  { key:'heel_right', name:'Heel (Outer)', x:0.63, y:0.88, color:'#F97316' },
+  { key:'arch',       name:'Arch',         x:0.18, y:0.60, color:'#2870CC' },
+  { key:'ball',       name:'Ball',         x:0.58, y:0.42, color:'#EAB308' },
+  { key:'toe',        name:'Big Toe',      x:0.28, y:0.14, color:'#22C55E' },
+];
+
+let sensorVals = [0.4, 0.55, 0.45, 0.25, 0.4];
+let imu        = { pitch:0, roll:0, yaw:0 };
+let liveData   = false;
+let simT       = 0;
+
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+
+db.ref('/pressure').on('value', snap => {
+  const d = snap.val();
+  if (!d) return;
+  liveData = true;
+  setConnected(true);
+  SENSORS.forEach((s, i) => {
+    let v = d[s.key];
+    if (v == null) return;
+    v = parseFloat(v);
+    if (v > 1) v = v / 1023;
+    _baseSensorVals[i] = Math.min(1, Math.max(0, v));
+  });
+});
+
+let liveIMU = false;
+db.ref('/imu').on('value', snap => {
+  const d = snap.val();
+  if (!d) return;
+  liveIMU = true;
+  imu.pitch = parseFloat(d.pitch) || 0;
+  imu.roll  = parseFloat(d.roll)  || 0;
+  imu.yaw   = parseFloat(d.yaw)   || 0;
+});
+
+function setConnected(live) {
+  const dot = document.getElementById('sdot');
+  const lbl = document.getElementById('slbl');
+  dot.classList.toggle('live', live);
+  lbl.textContent = live ? 'LIVE · FIREBASE' : 'SIMULATED · NO DATA';
+}
+setTimeout(() => { if (!liveData) setConnected(false); }, 3500);
+
+setInterval(() => {
+  document.getElementById('htime').textContent =
+    new Date().toLocaleTimeString('en-US',{hour12:false});
+}, 1000);
+
+const wrap = document.getElementById('three-wrap');
+const renderer = new THREE.WebGLRenderer({ antialias:true, alpha:true });
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.shadowMap.enabled = true;
+wrap.appendChild(renderer.domElement);
+
+const scene  = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(42, 1, 0.01, 100);
+camera.position.set(0, 1.2, 3.8);
+camera.lookAt(0, -0.3, 0);
+
+function camUpdate(){}
+
+// Lighting
+scene.add(new THREE.AmbientLight(0xC8A882, 0.9));
+const kl=new THREE.DirectionalLight(0xffe8cc,0.6); kl.position.set(2,3,2); scene.add(kl);
+const kl2=new THREE.DirectionalLight(0xd4956a,0.3); kl2.position.set(-2,1,-1); scene.add(kl2);
+const grid=new THREE.GridHelper(7,22,0x2E3D52,0x1a2535); grid.position.y=-1.2; scene.add(grid);
+
+const fg = new THREE.Group();
+scene.add(fg);
+
+// Set hardcoded base rotation as quaternion so we can add IMU on top cleanly
+const BASE_RX = -132 * Math.PI/180;
+const BASE_RY = -1   * Math.PI/180;
+const BASE_RZ =  33  * Math.PI/180;
+const baseQuat = new THREE.Quaternion();
+baseQuat.setFromEuler(new THREE.Euler(BASE_RX, BASE_RY, BASE_RZ, 'XYZ'));
+
+function updateFootPos(){
+  fg.position.set(0, -0.60, 0.30);
+  camera.position.set(0, 1.2, 4.80);
+  camera.lookAt(0, -0.3, 0);
+}
+
+const loadDiv = document.createElement('div');
+loadDiv.style.cssText='position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);color:#AFC3D6;font-family:DM Mono,monospace;font-size:12px;letter-spacing:2px;pointer-events:none;';
+loadDiv.textContent='LOADING MODEL…';
+wrap.appendChild(loadDiv);
+
+const loader = new THREE.GLTFLoader();
+loader.load('assets/foot.glb',
+  (gltf) => {
+    loadDiv.remove();
+    const model = gltf.scene;
+    const skinMat = new THREE.MeshStandardMaterial({ color:0xD4956A, roughness:0.55, metalness:0.0 });
+    model.traverse(child => {
+      if(child.isMesh){ child.material=skinMat; child.castShadow=true; child.receiveShadow=true; }
+    });
+    fg.add(model);
+    model.scale.setScalar(0.28);
+    updateFootPos();
+    window._footModel = model;
+  },
+  undefined,
+  (err) => { loadDiv.textContent='MODEL ERROR'; console.error(err); }
+);
+
+function resizeR(){
+  const w=wrap.clientWidth, h=wrap.clientHeight;
+  renderer.setSize(w,h,false);
+  camera.aspect=w/h; camera.updateProjectionMatrix();
+}
+new ResizeObserver(resizeR).observe(wrap);
+resizeR();
+
+//Heatmap:
+const hm = document.getElementById('heat-canvas');
+const hx = hm.getContext('2d');
+let HW = 300, HH = 500;
+
+// Heatmap rect: fraction of canvas covered by the foot area
+let hmRect = { x:0.20, y:0.05, w:0.48, h:0.60 };
+
+function resizeHeatCanvas(){
+  const stack = hm.parentElement;
+  hm.width  = stack.clientWidth  || 300;
+  hm.height = stack.clientHeight || 500;
+  HW = hm.width; HH = hm.height;
+}
+new ResizeObserver(resizeHeatCanvas).observe(document.querySelector('.hm-stack'));
+resizeHeatCanvas();
+function getHWHH(){ HW=hm.width; HH=hm.height; }
+
+// Wire heatmap rect sliders
+['hmx','hmy','hmw','hmh'].forEach(id => {
+  const el = document.getElementById(id);
+  if(!el) return;
+  el.addEventListener('input', () => {
+    const v = parseFloat(el.value);
+    document.getElementById(id+'v').textContent = v.toFixed(2);
+    hmRect[id.slice(2)] = v;
+  });
+});
+
+const _footImg = new Image();
+_footImg.src = 'assets/foot.png';
+let _offCanvas = null;
+
+function valToHeatRGB(val){
+  let r,g,b;
+  const v = Math.max(0,Math.min(1,val));
+  if(v < 0.2){ const t=v/0.2; r=0; g=Math.round(t*100); b=Math.round(180+t*75); }
+  else if(v < 0.4){ const t=(v-0.2)/0.2; r=0; g=Math.round(100+t*155); b=Math.round(255-t*255); }
+  else if(v < 0.6){ const t=(v-0.4)/0.2; r=Math.round(t*255); g=255; b=0; }
+  else if(v < 0.8){ const t=(v-0.6)/0.2; r=255; g=Math.round(255-t*155); b=0; }
+  else { const t=(v-0.8)/0.2; r=255; g=Math.round(100-t*100); b=0; }
+  return [r,g,b];
+}
+
+function drawHeatmap(){
+  getHWHH();
+  hx.clearRect(0,0,HW,HH);
+
+  // Draw IDW heatmap into the configured rect
+  const rx = hmRect.x * HW;
+  const ry = hmRect.y * HH;
+  const rw = hmRect.w * HW;
+  const rh = hmRect.h * HH;
+
+  const SCALE = 4;
+  const ow = Math.max(1, Math.ceil(rw/SCALE));
+  const oh = Math.max(1, Math.ceil(rh/SCALE));
+  if (!_offCanvas) _offCanvas = document.createElement('canvas');
+  _offCanvas.width = ow; _offCanvas.height = oh;
+  const ox = _offCanvas.getContext('2d');
+  const imgData = ox.createImageData(ow, oh);
+  const d = imgData.data;
+
+  const pts = SENSORS.map((s,i) => ({
+    cx: s.x * ow, cy: s.y * oh, v: sensorVals[i]
+  }));
+
+  const power=2.0, minD=4;
+  for(let py=0;py<oh;py++){
+    for(let px=0;px<ow;px++){
+      let wSum=0,vSum=0;
+      for(let i=0;i<pts.length;i++){
+        const dx=px-pts[i].cx, dy=py-pts[i].cy;
+        const dist=Math.sqrt(dx*dx+dy*dy);
+        const w=1/Math.pow(Math.max(dist,minD),power);
+        wSum+=w; vSum+=w*pts[i].v;
+      }
+      const val=vSum/wSum;
+      const [r,g,b]=valToHeatRGB(val);
+      const idx=(py*ow+px)*4;
+      d[idx]=r; d[idx+1]=g; d[idx+2]=b; d[idx+3]=255;
+    }
+  }
+  ox.putImageData(imgData,0,0);
+
+  hx.imageSmoothingEnabled=true;
+  hx.imageSmoothingQuality='high';
+  hx.drawImage(_offCanvas, rx, ry, rw, rh);
+
+  // Draw sensor dots on canvas (above heatmap, below foot PNG)
+  SENSORS.forEach((s,i)=>{
+    const v  = sensorVals[i];
+    const cx = rx + s.x * rw;
+    const cy = ry + s.y * rh;
+
+    // Pulsing ring
+    const pulse = 0.5 + 0.5 * Math.sin(simT * 3 + i * 1.2);
+    const ringR = 9 + pulse * 5;
+    hx.beginPath();
+    hx.arc(cx, cy, ringR, 0, Math.PI*2);
+    hx.strokeStyle = s.color + 'aa';
+    hx.lineWidth = 1.5;
+    hx.stroke();
+
+    // Solid centre dot
+    hx.beginPath();
+    hx.arc(cx, cy, 5, 0, Math.PI*2);
+    hx.fillStyle = s.color;
+    hx.fill();
+    hx.strokeStyle = '#fff';
+    hx.lineWidth = 1.5;
+    hx.stroke();
+
+    // Label above dot
+    const label = s.name.split(' ')[0];
+    hx.font = 'bold 8px DM Mono,monospace';
+    hx.textAlign = 'center';
+    hx.fillStyle = 'rgba(0,0,0,0.65)';
+    hx.fillRect(cx-16, cy-22, 32, 11);
+    hx.fillStyle = '#fff';
+    hx.fillText(label, cx, cy-13);
+  });
+}
+
+
+// Legend
+const legEl=document.getElementById('slegend');
+const sbarEls=[],svalEls=[];
+SENSORS.forEach((s,i)=>{
+  const row=document.createElement('div');
+  row.className='srow';
+  row.innerHTML=`<div class="sdot" style="background:${s.color}"></div>
+    <div class="sname">${s.name}</div>
+    <div class="sbar-wrap"><div class="sbar" id="sb${i}" style="background:${s.color}"></div></div>
+    <div class="sval" id="sv${i}">0%</div>`;
+  legEl.appendChild(row);
+  sbarEls.push(document.getElementById('sb'+i));
+  svalEls.push(document.getElementById('sv'+i));
+});
+
+//Pressure history:
+const phC=document.getElementById('ph-canvas');
+const phx=phC.getContext('2d');
+const PHL=140;
+const phD=SENSORS.map(()=>new Array(PHL).fill(0));
+
+function resizePH(){phC.width=phC.parentElement.clientWidth-2;phC.height=68;}
+new ResizeObserver(resizePH).observe(phC.parentElement);
+resizePH();
+
+function drawPH(){
+  const pw=phC.width,ph=phC.height;
+  phx.clearRect(0,0,pw,ph);
+  phx.fillStyle='#111827'; phx.fillRect(0,0,pw,ph);
+  SENSORS.forEach((s,si)=>{
+    phx.beginPath();
+    phD[si].forEach((v,xi)=>{
+      const x=(xi/(PHL-1))*pw, y=ph-v*ph*0.82-4;
+      xi===0?phx.moveTo(x,y):phx.lineTo(x,y);
+    });
+    phx.strokeStyle=s.color; phx.lineWidth=1.5; phx.globalAlpha=0.85; phx.stroke(); phx.globalAlpha=1;
+  });
+}
+
+function imuBar(id,val,range){
+  const el=document.getElementById(id); if(!el)return;
+  const frac=Math.abs(val)/range*50;
+  el.style.left=(val<0?50-frac:50)+'%';
+  el.style.width=frac+'%';
+  el.style.background=val<0?'#E63946':'#2870CC';
+}
+function updateIMU(){
+  document.getElementById('ipitch').innerHTML=imu.pitch.toFixed(1)+' <em>°</em>';
+  document.getElementById('iroll').innerHTML =imu.roll.toFixed(1) +' <em>°</em>';
+  document.getElementById('iyaw').innerHTML  =imu.yaw.toFixed(1)  +' <em>°</em>';
+  imuBar('bpitch',imu.pitch,45);
+  imuBar('broll', imu.roll, 30);
+  imuBar('byaw',  imu.yaw,  90);
+  // Compose base rotation with IMU delta using quaternions
+  // This ensures pitch/roll/yaw rotate relative to the foot's own axes
+  const imuQuat = new THREE.Quaternion();
+  imuQuat.setFromEuler(new THREE.Euler(
+    THREE.Math.degToRad(-imu.pitch),
+    THREE.Math.degToRad(imu.yaw),
+    THREE.Math.degToRad(imu.roll),
+    'XYZ'
+  ));
+  fg.quaternion.multiplyQuaternions(baseQuat, imuQuat);
+  updateFootPos();
+}
+
+//Vitals:
+const VH={
+  hr:  Array.from({length:50},()=>70+Math.random()*8),
+  sp:  Array.from({length:50},()=>97+Math.random()*2),
+  rr:  Array.from({length:50},()=>14+Math.random()*3),
+  tp:  Array.from({length:50},()=>36.4+Math.random()*0.4),
+};
+let vt=0;
+function stepVitals(){
+  vt+=0.06;
+  const hr  =72+7*Math.sin(vt*.4)+(Math.random()-.5)*2;
+  const spo2=98+.9*Math.sin(vt*.18)+(Math.random()-.5)*.3;
+  const rr  =15+2*Math.sin(vt*.3)+(Math.random()-.5)*.6;
+  const temp=36.6+.2*Math.sin(vt*.1)+(Math.random()-.5)*.04;
+  VH.hr.push(hr);  VH.hr.shift();
+  VH.sp.push(spo2);VH.sp.shift();
+  VH.rr.push(rr);  VH.rr.shift();
+  VH.tp.push(temp);VH.tp.shift();
+  document.getElementById('vhr').textContent  =Math.round(hr);
+  document.getElementById('vspo2').textContent=spo2.toFixed(1);
+  document.getElementById('vrr').textContent  =Math.round(rr);
+  document.getElementById('vtemp').textContent=temp.toFixed(1);
+  spark('sphr',  VH.hr, '#E63946');
+  spark('spspo2',VH.sp, '#2870CC');
+  spark('sprr',  VH.rr, '#22C55E');
+  spark('sptemp',VH.tp, '#F59E0B');
+}
+function spark(id,data,color){
+  const c=document.getElementById(id); if(!c)return;
+  const ctx=c.getContext('2d'),w=c.width,h=c.height;
+  ctx.clearRect(0,0,w,h);
+  const mn=Math.min(...data),mx=Math.max(...data),rng=mx-mn||1;
+  ctx.beginPath();
+  data.forEach((v,i)=>{
+    const x=(i/(data.length-1))*w, y=h-((v-mn)/rng)*(h*.78)-h*.11;
+    i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);
+  });
+  ctx.strokeStyle=color; ctx.lineWidth=1.5; ctx.stroke();
+  ctx.lineTo(w,h); ctx.lineTo(0,h); ctx.closePath();
+  ctx.globalAlpha=0.1; ctx.fillStyle=color; ctx.fill(); ctx.globalAlpha=1;
+}
+function resizeSparks(){
+  ['sphr','spspo2','sprr','sptemp'].forEach(id=>{
+    const c=document.getElementById(id);
+    if(c){c.width=c.parentElement.clientWidth-32;c.height=30;}
+  });
+}
+new ResizeObserver(resizeSparks).observe(document.querySelector('.vitals-grid'));
+resizeSparks();
+setInterval(stepVitals,750);
+stepVitals();
+
+//Simulation:
+let _baseSensorVals = [0.4, 0.55, 0.45, 0.25, 0.4];
+let appMode = 'live'; // 'live' or 'demo'
+
+function setMode(mode){
+  appMode = mode;
+  document.getElementById('btn-live').classList.toggle('active', mode==='live');
+  document.getElementById('btn-demo').classList.toggle('active', mode==='demo');
+  const dot = document.getElementById('sdot');
+  const lbl = document.getElementById('slbl');
+  if(mode === 'demo'){
+    dot.classList.remove('live');
+    lbl.textContent = 'DEMO MODE';
+  } else {
+    lbl.textContent = liveData ? 'LIVE · FIREBASE' : 'CONNECTING…';
+    if(liveData) dot.classList.add('live');
+  }
+}
+
+function stepSim(){
+  simT += 0.018;
+
+  if(appMode === 'demo'){
+    // Walking cycle: heel strike → midstance → toe-off → swing
+    const walkT  = simT * 1.4; // walk speed
+    const cycle  = walkT % (Math.PI * 2);
+
+    // Pitch: heel strike (toe up ~+20°) → midstance (0°) → toe-off (toe down ~-30°) → swing (+15°)
+    imu.pitch = 20*Math.sin(walkT) - 5*Math.sin(walkT*2);
+    imu.roll  = 6*Math.sin(walkT + 0.8);
+    imu.yaw   = 3*Math.sin(walkT * 0.5);
+
+    // Pressure follows gait: heel → arch → ball → toe
+    const phase = cycle / (Math.PI*2); // 0-1
+    _baseSensorVals = [
+      Math.max(0, Math.sin(phase * Math.PI * 2) * (phase < 0.3 ? 1.2 : 0.3)),           // heel_left
+      Math.max(0, Math.sin(phase * Math.PI * 2) * (phase < 0.3 ? 0.9 : 0.2)),           // heel_right
+      Math.max(0, Math.sin((phase - 0.25) * Math.PI * 2) * (phase > 0.2 && phase < 0.6 ? 0.8 : 0.1)), // arch
+      Math.max(0, Math.sin((phase - 0.4) * Math.PI * 2) * (phase > 0.35 && phase < 0.75 ? 1.1 : 0.1)), // ball
+      Math.max(0, Math.sin((phase - 0.6) * Math.PI * 2) * (phase > 0.55 ? 1.3 : 0.1)), // toe
+    ].map(v => Math.min(1, Math.max(0.02, v)));
+
+  } else {
+    // Live mode — only simulate when no Firebase data
+    if(!liveData){
+      _baseSensorVals=[
+        .30+.28*Math.abs(Math.sin(simT*.7)),
+        .45+.32*Math.abs(Math.sin(simT*1.1+1)),
+        .38+.30*Math.abs(Math.sin(simT*.9+2)),
+        .18+.22*Math.abs(Math.sin(simT*1.3+.5)),
+        .40+.22*Math.abs(Math.sin(simT*.6+1.5)),
+      ];
+    }
+    if(!liveIMU){
+      imu.pitch = 8*Math.sin(simT*.4);
+      imu.roll  = 4*Math.sin(simT*.3+1);
+      imu.yaw   = 5*Math.sin(simT*.2+2);
+    }
+  }
+
+  // Idle pulse
+  sensorVals = _baseSensorVals.map((v, i) => {
+    const pulse = 0.04 * Math.sin(simT * 1.2 + i * 1.1);
+    return Math.max(0.01, Math.min(1.0, v + pulse));
+  });
+}
+
+//Main loop:
+let frame=0;
+
+(function loop(){
+  requestAnimationFrame(loop);
+  frame++;
+  stepSim();
+  updateIMU();
+
+  if(frame%5===0){
+    sensorVals.forEach((v,i)=>{phD[i].push(v);phD[i].shift();});
+    drawPH();
+  }
+
+  const avg=sensorVals.reduce((a,b)=>a+b,0)/sensorVals.length;
+  document.getElementById('tload').innerHTML=Math.round(avg*100)+' <em>kPa</em>';
+  sensorVals.forEach((v,i)=>{
+    sbarEls[i].style.width=(v*100)+'%';
+    svalEls[i].textContent=Math.round(v*100)+'%';
+  });
+
+  drawHeatmap();
+  renderer.render(scene, camera);
+})();
+</script>
+</body>
+</html>
