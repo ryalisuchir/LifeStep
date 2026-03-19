@@ -2,7 +2,7 @@
 
 **LifeStep** is a real-time biomechanics visualization tool designed by our HOSA team to monitor plantar pressure and foot orientation. By integrating **Firebase Realtime Database** with a **Three.js** 3D environment and a dynamic IDW (Inverse Distance Weighting) heatmap, it provides a comprehensive overview of gait and posture data for clinical or athletic analysis.
 
-![Dashboard Preview](website.png)
+![Dashboard Preview](Website.png)
 
 ---
 
