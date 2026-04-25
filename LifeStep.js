@@ -3,7 +3,7 @@ const SENSORS = [
     { key: 'heel_right', name: 'Heel (Outer)', x: 0.63, y: 0.88, color: '#F97316' },
     { key: 'arch', name: 'Arch', x: 0.18, y: 0.60, color: '#2870CC' },
     { key: 'ball', name: 'Ball', x: 0.58, y: 0.42, color: '#EAB308' },
-    { key: 'toe', name: 'Big Toe', x: 0.28, y: 0.14, color: '#22C55E' },
+    { key: 'big_toe', name: 'Big Toe', x: 0.28, y: 0.14, color: '#22C55E' },
 ];
 
 let sensorVals = [0.4, 0.55, 0.45, 0.25, 0.4];
@@ -81,7 +81,7 @@ function connect() {
 
             const pressureDataEl = document.getElementById('pressure-data');
             if (pressureDataEl) {
-                pressureDataEl.innerHTML = `Toe: ${pressure.toe ?? '-'} | Ball: ${pressure.ball ?? '-'} | Heel: ${pressure.heel_left ?? '-'}`;
+                pressureDataEl.innerHTML = `Big Toe: ${pressure.big_toe ?? '-'} | Ball: ${pressure.ball ?? '-'} | Heel: ${pressure.heel_left ?? '-'}`;
             }
         }
     };
@@ -274,7 +274,7 @@ function drawHeatmap() {
         hx.lineWidth = 1.5;
         hx.stroke();
 
-        // Solid centre dot
+        // Solid center dot
         hx.beginPath();
         hx.arc(cx, cy, 5, 0, Math.PI * 2);
         hx.fillStyle = s.color;
@@ -452,7 +452,7 @@ function stepSim() {
             Math.max(0, Math.sin(phase * Math.PI * 2) * (phase < 0.3 ? 0.9 : 0.2)),           // heel_right
             Math.max(0, Math.sin((phase - 0.25) * Math.PI * 2) * (phase > 0.2 && phase < 0.6 ? 0.8 : 0.1)), // arch
             Math.max(0, Math.sin((phase - 0.4) * Math.PI * 2) * (phase > 0.35 && phase < 0.75 ? 1.1 : 0.1)), // ball
-            Math.max(0, Math.sin((phase - 0.6) * Math.PI * 2) * (phase > 0.55 ? 1.3 : 0.1)), // toe
+            Math.max(0, Math.sin((phase - 0.6) * Math.PI * 2) * (phase > 0.55 ? 1.3 : 0.1)), // big toe
         ].map(v => Math.min(1, Math.max(0.02, v)));
 
     } else {
